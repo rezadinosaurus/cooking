@@ -52,11 +52,7 @@ jobs:
         if [ ! -x "$CLANG_DIR/bin/clang" ]; then
           mkdir -p "$CLANG_DIR"
           wget -q "$CLANG_URL" -O tc/clang.tar.gz
-          if tar -tzf tc/clang.tar.gz | grep -q '^\(\./\)\?bin/clang$'; then
-            tar -xzf tc/clang.tar.gz -C "$CLANG_DIR"
-          else
-            tar -xzf tc/clang.tar.gz -C "$CLANG_DIR" --strip-components=1
-          fi
+          tar -xzf tc/clang.tar.gz -C "$CLANG_DIR"
           rm -f tc/clang.tar.gz
         fi
 
