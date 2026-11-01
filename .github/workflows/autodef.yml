@@ -1,4 +1,4 @@
-name: clang defconfigs gen
+name: defconfigs gen
 
 on:
   workflow_dispatch:
