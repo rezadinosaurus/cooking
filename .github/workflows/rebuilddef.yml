@@ -1,0 +1,112 @@
+name: rebuild defconfig
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository: { description: 'Repo', required: true, default: 'rezadinosaurus/android_kernel_qcom_sm8250' }
+      branch: { description: 'Branch', required: true, default: 'lineage-latte' }
+      device:
+        description: 'Device'
+        required: true
+        type: choice
+        default: alioth
+        options: [alioth, apollo, cas, cmi, dagu, elish, enuma, lmi, munch, psyche, thyme, umi, all]
+
+env:
+  CLANG_URL: "https://github.com/moonooen/AOSP20/releases/download/v1.0/clang-r547379-qssi.tar.gz"
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.event.inputs.repository }}
+        ref: ${{ github.event.inputs.branch }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi python3 python-is-python3 wget xz-utils
+
+    - name: Cache Clang
+      uses: actions/cache@v4
+      with:
+        path: tc/clang
+        key: clang-r547379-qssi
+
+    - name: Setup Clang
+      run: |
+        set -e
+        CLANG_DIR="$PWD/tc/clang"
+
+        if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+          mkdir -p "$CLANG_DIR"
+          wget -q "$CLANG_URL" -O tc/clang.tar.gz
+
+          if tar -tzf tc/clang.tar.gz | grep -q '^\(\./\)\?bin/clang$'; then
+            tar -xzf tc/clang.tar.gz -C "$CLANG_DIR"
+          else
+            tar -xzf tc/clang.tar.gz -C "$CLANG_DIR" --strip-components=1
+          fi
+          rm -f tc/clang.tar.gz
+        fi
+
+        if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+          echo "ERROR: Clang not found"
+          find "$CLANG_DIR" -maxdepth 3 -type f | sort | head -100
+          exit 1
+        fi
+
+        echo "$CLANG_DIR/bin" >> $GITHUB_PATH
+        "$CLANG_DIR/bin/clang" --version | head -n1
+
+    - name: Rebuild Defconfig
+      run: |
+        set -eo pipefail
+
+        MAKE_ARGS=(
+          ARCH=arm64
+          CC=clang
+          CLANG_TRIPLE=aarch64-linux-gnu-
+          CROSS_COMPILE=aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+          LD=ld.lld
+          AR=llvm-ar
+          NM=llvm-nm
+          OBJCOPY=llvm-objcopy
+          OBJDUMP=llvm-objdump
+          STRIP=llvm-strip
+        )
+
+        DEVICE_INPUT="${{ github.event.inputs.device }}"
+        ALL_DEVICES="alioth apollo cas cmi dagu elish enuma lmi munch psyche thyme umi"
+
+        if [ "$DEVICE_INPUT" = "all" ]; then
+          TARGETS="$ALL_DEVICES"
+        else
+          TARGETS="$DEVICE_INPUT"
+        fi
+
+        mkdir -p defconfig_output
+
+        for device in $TARGETS; do
+          OUT_DIR=$PWD/temp_${device}
+          rm -rf "$OUT_DIR"
+          mkdir -p "$OUT_DIR"
+
+          make O="$OUT_DIR" "${MAKE_ARGS[@]}" ${device}_defconfig
+          cp "$OUT_DIR/.config" defconfig_output/${device}.config
+          rm -rf "$OUT_DIR"
+        done
+
+        head -n 15 defconfig_output/*.config | tee -a $GITHUB_STEP_SUMMARY
+
+    - name: Upload Defconfig
+      uses: actions/upload-artifact@v4
+      with:
+        name: defconfig-${{ github.event.inputs.device }}
+        path: defconfig_output/
+        retention-days: 7
