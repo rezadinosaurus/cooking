@@ -7,7 +7,6 @@ on:
         description: "Kernel repository"
         required: true
         default: "rezadinosaurus/android_kernel_qcom_sm8250"
-
       branch:
         description: "Kernel branch"
         required: true
@@ -36,27 +35,12 @@ jobs:
           set -e
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            libncurses-dev \
-            bison \
-            flex \
-            libssl-dev \
-            libelf-dev \
-            bc \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi \
-            python3 \
-            python-is-python3 \
-            git \
-            wget \
-            curl \
-            device-tree-compiler \
-            zstd \
-            xz-utils \
-            zip
+            build-essential libncurses-dev bison flex libssl-dev libelf-dev bc \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            python3 python-is-python3 git wget curl device-tree-compiler \
+            zstd xz-utils zip
 
       - name: Cache Clang
-        id: cache-clang
         uses: actions/cache@v4
         with:
           path: tc/clang
@@ -66,56 +50,32 @@ jobs:
         shell: bash
         run: |
           set -e
-
           CLANG_DIR="$GITHUB_WORKSPACE/tc/clang"
 
           if [ ! -x "$CLANG_DIR/bin/clang" ]; then
             mkdir -p "$CLANG_DIR"
-
             wget -q "$CLANG_URL" -O "$GITHUB_WORKSPACE/clang.tar.gz"
-
-            echo "========== Tarball layout =========="
-            tar -tzf "$GITHUB_WORKSPACE/clang.tar.gz" | head -n 10
-            echo "===================================="
-
-            if tar -tzf "$GITHUB_WORKSPACE/clang.tar.gz" | grep -q '^\(\./\)\?bin/clang$'; then
-              tar -xzf "$GITHUB_WORKSPACE/clang.tar.gz" -C "$CLANG_DIR"
-            else
-              tar -xzf "$GITHUB_WORKSPACE/clang.tar.gz" -C "$CLANG_DIR" --strip-components=1
-            fi
-
+            tar -xzf "$GITHUB_WORKSPACE/clang.tar.gz" -C "$CLANG_DIR"
             rm -f "$GITHUB_WORKSPACE/clang.tar.gz"
           fi
 
           if [ ! -x "$CLANG_DIR/bin/clang" ]; then
-            echo "ERROR: Clang not found."
-            echo
-            echo "Contents of Clang directory:"
-            find "$CLANG_DIR" -maxdepth 3 -type f | sort | head -200
+            echo "ERROR: Clang not found"
+            find "$CLANG_DIR" -maxdepth 3 -type f | sort | head -100
             exit 1
           fi
 
-          export PATH="$CLANG_DIR/bin:$PATH"
           echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
-
           echo "CLANG_DIR=$CLANG_DIR" >> "$GITHUB_ENV"
           echo "TC_BIN=$CLANG_DIR/bin" >> "$GITHUB_ENV"
 
-          echo
-          echo "========== Detected Clang =========="
-          clang --version | head -n1
-          ld.lld --version | head -n1
-          echo "===================================="
+          "$CLANG_DIR/bin/clang" --version | head -n1
 
       - name: Generate all defconfigs
         shell: bash
         run: |
           set -e
-
-          clang --version | head -n1
-
           chmod +x scripts/update_defconfig
-
           ./scripts/update_defconfig all
 
       - name: Verify generated defconfigs
@@ -142,58 +102,34 @@ jobs:
           )
 
           for DEVICE in $DEVICES; do
-            echo
-            echo "=========================================="
-            echo "Verifying: $DEVICE"
-            echo "=========================================="
-
-            DEFCONFIG="arch/arm64/configs/${DEVICE}_defconfig"
-
-            test -f "$DEFCONFIG"
-
+            echo "=== Verifying: $DEVICE ==="
+            test -f "arch/arm64/configs/${DEVICE}_defconfig"
             rm -rf "verify-$DEVICE"
 
             make O="verify-$DEVICE" "${MAKE_ARGS[@]}" "${DEVICE}_defconfig" \
               || make O="verify-$DEVICE" "${MAKE_ARGS[@]}" "vendor/${DEVICE}_defconfig"
 
             rm -rf "verify-$DEVICE"
-
-            echo "OK: $DEFCONFIG"
+            echo "OK: $DEVICE"
           done
-
-          echo
-          echo "=========================================="
-          echo "ALL DEFCONFIGS VERIFIED SUCCESSFULLY"
-          echo "=========================================="
 
       - name: Show defconfig changes
         shell: bash
         run: |
           git status --short
-
-          echo
-          echo "========== DEFCONFIG DIFF =========="
           git diff -- arch/arm64/configs
 
       - name: Package all defconfigs
         shell: bash
         run: |
           set -e
-
           mkdir -p defconfig-output
 
-          DEVICES="alioth apollo cas cmi dagu elish enuma lmi munch umi thyme psyche"
-
-          for DEVICE in $DEVICES; do
+          for DEVICE in alioth apollo cas cmi dagu elish enuma lmi munch umi thyme psyche; do
             cp "arch/arm64/configs/${DEVICE}_defconfig" "defconfig-output/${DEVICE}_defconfig"
           done
 
-          cd defconfig-output
-          zip -r ../defconfigs-all.zip .
-          cd ..
-
-          echo
-          echo "Generated:"
+          (cd defconfig-output && zip -r ../defconfigs-all.zip .)
           ls -lh defconfigs-all.zip
 
       - name: Upload defconfigs
